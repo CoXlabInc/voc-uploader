@@ -1,13 +1,9 @@
 import xml.etree.ElementTree as ET
 import base64
-import requests
 import argparse
-
-parser = argparse.ArgumentParser(description='VOC uploader for IoT.own')
-parser.add_argument('url', metavar='URL', help='IoT.own server URL')
-parser.add_argument('token', metavar='token', help='Token for IoT.own API')
-
-args = parser.parse_args()
+import aiohttp
+import asyncio
+import aiofiles
 
 sets=[('2012', 'train'), ('2012', 'val'), ('2007', 'train'), ('2007', 'val'), ('2007', 'test')]
 
@@ -60,10 +56,22 @@ def convert_annotation(year, image_id):
     message += ']}'
     return message
 
-for year, image_set in sets:
-    image_ids = open('VOCdevkit/VOC%s/ImageSets/Main/%s.txt'%(year, image_set)).read().strip().split()
-    for image_id in image_ids:
-        message = convert_annotation(year, image_id)
-        r = requests.post('%s/api/v1.0/dlt/image'%(args.url), data=message, headers={'Content-Type': 'application/json', 'Token': args.token}, verify=False)
-        print('Upload VOCdevkit/VOC%s/JPEGImages/%s.jpg => %d %s' % (year, image_id, r.status_code, r.text))
+async def main():
+    async with aiohttp.ClientSession() as session:
+        for year, image_set in sets:
+            async with aiofiles.open('VOCdevkit/VOC%s/ImageSets/Main/%s.txt'%(year, image_set)) as f:
+                contents = await f.read()
+                image_ids = contents.strip().split()
+                for image_id in image_ids:
+                    payload = convert_annotation(year, image_id)
+                    r = await session.post('%s/api/v1.0/dlt/image'%(args.url), data=payload, headers={'Content-Type': 'application/json', 'Token': args.token}, ssl=False)
+                    print('Upload VOCdevkit/VOC%s/JPEGImages/%s.jpg => %d %s' % (year, image_id, r.status, r.text))
 
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='VOC uploader for IoT.own')
+    parser.add_argument('url', metavar='URL', help='IoT.own server URL')
+    parser.add_argument('token', metavar='token', help='Token for IoT.own API')
+
+    args = parser.parse_args()
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
